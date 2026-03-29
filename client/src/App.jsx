@@ -55,7 +55,8 @@ function AppInner() {
 
   async function handleCitySearch(cityName) {
     try {
-      const res = await fetch(`/api/geocode?city=${encodeURIComponent(cityName)}`)
+      const apiBase = import.meta.env.VITE_API_URL || ''
+      const res = await fetch(`${apiBase}/api/geocode?city=${encodeURIComponent(cityName)}`)
       if (!res.ok) { showToast(`City not found: "${cityName}"`); return }
       const { lat, lng } = await res.json()
       setCityOverride({ lat, lng, name: cityName })

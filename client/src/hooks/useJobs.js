@@ -42,7 +42,8 @@ export default function useJobs() {
         params.employmentType = empTypes.join(',')
       }
 
-      const { data } = await axios.get('/api/jobs', { params })
+      const apiBase = import.meta.env.VITE_API_URL || ''
+      const { data } = await axios.get(`${apiBase}/api/jobs`, { params })
       setJobs(Array.isArray(data) ? data : [])
     } catch (err) {
       const msg =

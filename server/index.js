@@ -12,7 +12,8 @@ const PORT = process.env.PORT || 3001;
 const geoCache = new Map();
 
 // Middleware
-app.use(cors({ origin: 'http://localhost:5173' }));
+const allowedOrigin = process.env.ALLOWED_ORIGIN || 'http://localhost:5173';
+app.use(cors({ origin: allowedOrigin }));
 app.use(express.json());
 
 // Request logger

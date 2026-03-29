@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: mapjob-server
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node index.js
+    envVars:
+      - key: PORT
+        value: 3001
+      - key: RAPIDAPI_KEY
+        sync: false
+      - key: ALLOWED_ORIGIN
+        sync: false
