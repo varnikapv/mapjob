@@ -27,9 +27,9 @@ const userIcon = L.divIcon({
 })
 
 // ── Job marker: dark pill with employer name ────────────────────────────────
-function makeJobIcon(name, isSelected) {
+function makeJobIcon(name, isSelected, isApplied) {
   const truncated = name.length > 18 ? name.slice(0, 18) + '...' : name
-  const bg = isSelected ? 'var(--accent)' : 'var(--ink)'
+  const bg = isSelected ? 'var(--accent)' : isApplied ? 'var(--accent2)' : 'var(--ink)'
   return L.divIcon({
     className: '',
     html: `
@@ -127,8 +127,14 @@ function FitBounds({ plotted, userCenter }) {
   return null
 }
 
+const ROLE_SUGGESTIONS = [
+  'Software Engineer', 'Frontend Developer', 'Data Analyst',
+  'Product Manager', 'UX Designer', 'DevOps Engineer',
+  'Marketing Manager', 'Backend Developer',
+]
+
 // ── Main component ──────────────────────────────────────────────────────────
-export default function MapView({ jobs = [], selectedJob, isLoading, onJobSelect, userLat, userLng }) {
+export default function MapView({ jobs = [], selectedJob, isLoading, onJobSelect, userLat, userLng, applied = {}, firstLoad = false, onFirstSearch }) {
   const plotted = useMemo(() => scatterJobs(jobs, userLat, userLng), [jobs, userLat, userLng])
 
   const flyTarget = useMemo(() => {
@@ -143,7 +149,7 @@ export default function MapView({ jobs = [], selectedJob, isLoading, onJobSelect
   )
 
   return (
-    <div className="relative h-full w-full">
+    <div className="relative h-full w-full" style={{ zIndex: 0 }}>
       {/* Job pin styles */}
       <style>{`
         .jm-pin {
@@ -197,7 +203,8 @@ export default function MapView({ jobs = [], selectedJob, isLoading, onJobSelect
             position={[job.job_latitude, job.job_longitude]}
             icon={makeJobIcon(
               job.employer_name || 'Unknown',
-              selectedJob?.job_id === job.job_id
+              selectedJob?.job_id === job.job_id,
+              !!applied[job.job_id]
             )}
             eventHandlers={{ click: () => onJobSelect(job) }}
           />
@@ -214,8 +221,29 @@ export default function MapView({ jobs = [], selectedJob, isLoading, onJobSelect
         </div>
       )}
 
+      {/* Welcome overlay — first load */}
+      {!isLoading && firstLoad && (
+        <div className="absolute inset-0 flex items-center justify-center z-[999]" style={{ background: 'rgba(245,240,232,0.7)', backdropFilter: 'blur(3px)' }}>
+          <div className="bg-white rounded-2xl px-8 py-7 text-center shadow-xl border border-border max-w-sm w-full mx-4">
+            <p className="font-display text-2xl font-black text-ink tracking-tight">What are you looking for?</p>
+            <p className="text-xs font-body text-muted mt-1.5 mb-5">Pick a role to find nearby jobs, or search above.</p>
+            <div className="flex flex-wrap gap-2 justify-center">
+              {ROLE_SUGGESTIONS.map((role) => (
+                <button
+                  key={role}
+                  onClick={() => onFirstSearch(role)}
+                  className="px-3 py-1.5 rounded-full border border-border text-xs font-body text-ink bg-cream hover:bg-accent hover:text-white hover:border-accent transition-all active:scale-95"
+                >
+                  {role}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Empty state */}
-      {!isLoading && jobs.length === 0 && (
+      {!isLoading && !firstLoad && jobs.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center z-[999] pointer-events-none">
           <div className="bg-card/95 backdrop-blur-sm rounded-xl px-8 py-6 text-center shadow-lg border border-border max-w-xs">
             <p className="font-display text-lg font-semibold text-ink">No jobs found</p>

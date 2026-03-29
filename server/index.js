@@ -52,9 +52,20 @@ app.get('/api/jobs', async (req, res) => {
     }
 
     const searchTerm = keyword || 'software engineer';
+
+    // Append experience level to query for better results
+    // JSearch job_requirements only accepts: under_3_years_experience, more_than_3_years_experience, no_experience, no_degree
+    const expQueryMap = { ENTRY: 'entry level', MID: 'mid level', SENIOR: 'senior', DIRECTOR: 'director' }
+    const expRequirementsMap = {
+      ENTRY: null, // rely on query string only — combined values cause 400
+      MID: 'under_3_years_experience',
+      SENIOR: 'more_than_3_years_experience',
+      DIRECTOR: 'more_than_3_years_experience',
+    }
+    const expSuffix = (experience && expQueryMap[experience]) ? ` ${expQueryMap[experience]}` : ''
     const query = locationName
-      ? `${searchTerm} in ${locationName}`
-      : searchTerm;
+      ? `${searchTerm}${expSuffix} in ${locationName}`
+      : `${searchTerm}${expSuffix}`
 
     const params = {
       query,
@@ -63,8 +74,8 @@ app.get('/api/jobs', async (req, res) => {
     };
 
     if (remote === 'true') params.remote_jobs_only = true;
-    if (experience && experience !== 'ANY') {
-      params.job_requirements = experience.toLowerCase() + '_level';
+    if (experience && experience !== 'ANY' && expRequirementsMap[experience]) {
+      params.job_requirements = expRequirementsMap[experience];
     }
     if (datePosted) params.date_posted = datePosted;
     if (employmentType) params.employment_types = employmentType;

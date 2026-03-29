@@ -2,15 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useToast } from './Toast'
 
 const LS_KEY = 'jobpanel-size'
-const BOOKMARKS_KEY = 'jobmap-bookmarks'
-
-function getBookmarks() {
-  try { return JSON.parse(localStorage.getItem(BOOKMARKS_KEY)) || {} } catch { return {} }
-}
-function setBookmarks(bm) {
-  try { localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(bm)) } catch {}
-}
-const DEFAULT_SIZE = { width: 400, height: null, top: 0 } // height null = full container height
+const DEFAULT_SIZE = { width: 400, height: null, top: 0 }
 const MIN_W = 280
 const MAX_W = 860
 const MIN_H = 240
@@ -28,7 +20,6 @@ function Tag({ children, borderColor }) {
   )
 }
 
-// Cursor style per resize direction
 const CURSORS = {
   n: 'ns-resize', s: 'ns-resize',
   e: 'ew-resize', w: 'ew-resize',
@@ -38,11 +29,7 @@ const CURSORS = {
 
 function ResizeHandle({ dir, onMouseDown }) {
   const isCorner = dir.length === 2
-  const style = {
-    position: 'absolute',
-    cursor: CURSORS[dir],
-    zIndex: 10,
-  }
+  const style = { position: 'absolute', cursor: CURSORS[dir], zIndex: 10 }
 
   if (isCorner) {
     const size = 14
@@ -58,20 +45,13 @@ function ResizeHandle({ dir, onMouseDown }) {
     if (dir === 'e') { style.top = 0; style.right = 0; style.bottom = 0; style.width = thickness }
   }
 
-  return (
-    <div
-      style={style}
-      onMouseDown={(e) => onMouseDown(e, dir)}
-    />
-  )
+  return <div style={style} onMouseDown={(e) => onMouseDown(e, dir)} />
 }
 
-export default function JobPanel({ job, onClose }) {
-  const [bookmarked, setBookmarked] = useState(() => !!getBookmarks()[job?.job_id])
+export default function JobPanel({ job, onClose, isBookmarked, isApplied, onBookmark, onApplied }) {
   const { showToast } = useToast()
   const panelRef = useRef(null)
 
-  // Persisted size
   const [size, setSize] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(LS_KEY))
@@ -83,10 +63,6 @@ export default function JobPanel({ job, onClose }) {
     try { localStorage.setItem(LS_KEY, JSON.stringify(size)) } catch {}
   }, [size])
 
-  // Sync bookmark state when job changes
-  useEffect(() => { setBookmarked(!!getBookmarks()[job?.job_id]) }, [job?.job_id])
-
-  // Escape key closes panel
   useEffect(() => {
     function onKey(e) { if (e.key === 'Escape') onClose() }
     if (job) {
@@ -96,16 +72,15 @@ export default function JobPanel({ job, onClose }) {
   }, [job, onClose])
 
   function handleBookmark() {
-    const next = !bookmarked
-    setBookmarked(next)
-    const bm = getBookmarks()
-    if (next) bm[job.job_id] = true
-    else delete bm[job.job_id]
-    setBookmarks(bm)
-    showToast(next ? 'Saved ♥' : 'Removed from saved')
+    onBookmark(job)
+    showToast(isBookmarked ? 'Removed from saved' : 'Saved ♥')
   }
 
-  // Resize drag logic
+  function handleApplied() {
+    onApplied(job)
+    showToast(isApplied ? 'Removed applied status' : 'Marked as applied ✓')
+  }
+
   const startResize = useCallback((e, dir) => {
     e.preventDefault()
     const el = panelRef.current
@@ -159,14 +134,12 @@ export default function JobPanel({ job, onClose }) {
     window.addEventListener('mouseup', onUp)
   }, [])
 
-  // Description
   const desc = job?.job_description || ''
   const isTruncated = desc.length > 600
   const [expanded, setExpanded] = useState(false)
   useEffect(() => setExpanded(false), [job?.job_id])
   const displayDesc = expanded ? desc : desc.slice(0, 600)
 
-  // Metadata
   const expMonths = job?.job_required_experience?.required_experience_in_months
   const expLabel = expMonths ? `${Math.round(expMonths / 12)}+ yrs` : null
   const hasSalary = job?.job_min_salary || job?.job_max_salary
@@ -191,19 +164,17 @@ export default function JobPanel({ job, onClose }) {
     width: size.width,
     height: size.height ?? undefined,
     bottom: size.height ? undefined : 0,
-    zIndex: 20,
+    zIndex: 10,
     display: 'flex',
     flexDirection: 'column',
   }
 
   return (
-    // Slide-in wrapper
     <div
       ref={panelRef}
       style={panelStyle}
       className="bg-card border-l border-border shadow-xl overflow-hidden"
     >
-      {/* Resize handles — all 4 edges + 4 corners */}
       {['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'].map(dir => (
         <ResizeHandle key={dir} dir={dir} onMouseDown={startResize} />
       ))}
@@ -229,9 +200,16 @@ export default function JobPanel({ job, onClose }) {
               {(job.employer_name || '?')[0]}
             </div>
           )}
-          <p className="text-[10px] font-body font-medium uppercase tracking-widest text-accent">
-            {job.employer_name || 'Unknown'}
-          </p>
+          <div>
+            <p className="text-[10px] font-body font-medium uppercase tracking-widest text-accent">
+              {job.employer_name || 'Unknown'}
+            </p>
+            {isApplied && (
+              <span className="text-[9px] font-body font-medium px-1.5 py-0.5 rounded-full bg-accent2/10 text-accent2 border border-accent2/20">
+                ✓ Applied
+              </span>
+            )}
+          </div>
         </div>
 
         <h2 className="font-display text-xl font-semibold text-ink leading-snug pr-8">
@@ -319,11 +297,27 @@ export default function JobPanel({ job, onClose }) {
         >
           {job.job_apply_link ? 'Apply Now →' : 'Apply on company site'}
         </a>
+
+        {/* Applied toggle */}
+        <button
+          onClick={handleApplied}
+          title={isApplied ? 'Remove applied status' : 'Mark as applied'}
+          className={`h-10 px-3 rounded-md text-xs font-body font-medium border transition-all ${
+            isApplied
+              ? 'bg-accent2 border-accent2 text-white'
+              : 'border-border text-muted hover:border-accent2 hover:text-accent2'
+          }`}
+        >
+          {isApplied ? '✓ Applied' : 'Applied?'}
+        </button>
+
+        {/* Bookmark toggle */}
         <button
           onClick={handleBookmark}
+          title={isBookmarked ? 'Remove from saved' : 'Save job'}
           className="w-10 h-10 rounded-md border border-border flex items-center justify-center text-lg hover:border-accent transition-colors"
         >
-          {bookmarked ? '♥' : '♡'}
+          {isBookmarked ? '♥' : '♡'}
         </button>
       </div>
     </div>

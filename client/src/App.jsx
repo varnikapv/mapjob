@@ -1,18 +1,23 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { ToastProvider, useToast } from './components/Toast'
 import Header from './components/Header'
 import FilterSidebar from './components/FilterSidebar'
 import MapView from './components/MapView'
 import JobPanel from './components/JobPanel'
+import SavedDrawer from './components/SavedDrawer'
 import useGeolocation from './hooks/useGeolocation'
 import useJobs from './hooks/useJobs'
+import useBookmarks from './hooks/useBookmarks'
 
 function AppInner() {
   const geo = useGeolocation()
   const { jobs, isLoading, error, fetchJobs, totalCount } = useJobs()
+  const { bookmarks, applied, toggleBookmark, toggleApplied } = useBookmarks()
   const { showToast } = useToast()
 
   const [selectedJob, setSelectedJob] = useState(null)
+  const [savedDrawerOpen, setSavedDrawerOpen] = useState(false)
+  const [appliedDrawerOpen, setAppliedDrawerOpen] = useState(false)
   const [keyword, setKeyword] = useState('')
   const [filters, setFilters] = useState({
     keyword: '',
@@ -29,27 +34,37 @@ function AppInner() {
   })
   const [mobileFilters, setMobileFilters] = useState(false)
 
-  // Show errors as toasts
   useEffect(() => {
     if (error) showToast(error)
   }, [error, showToast])
 
-  // Auto-fetch when location first resolves
-  const hasFetched = useRef(false)
-  useEffect(() => {
-    if (geo.status !== 'pending' && !hasFetched.current) {
-      hasFetched.current = true
-      fetchJobs({ ...filters, keyword: 'software engineer' }, geo.lat, geo.lng)
+  const [firstLoad, setFirstLoad] = useState(true)
+  const [cityOverride, setCityOverride] = useState(null) // { lat, lng, name }
+
+  const effectiveLat = cityOverride?.lat ?? geo.lat
+  const effectiveLng = cityOverride?.lng ?? geo.lng
+  const currentCity = cityOverride?.name ?? (geo.status === 'default' ? 'Chennai (default)' : null)
+
+  const showDefaultBanner = !cityOverride && geo.status === 'default'
+
+  const doSearch = useCallback((overrides, lat, lng) => {
+    const merged = { ...filters, ...overrides, keyword: overrides?.keyword ?? keyword ?? '' }
+    setFirstLoad(false)
+    fetchJobs(merged, lat ?? effectiveLat, lng ?? effectiveLng)
+  }, [filters, keyword, effectiveLat, effectiveLng, fetchJobs])
+
+  async function handleCitySearch(cityName) {
+    try {
+      const res = await fetch(`/api/geocode?city=${encodeURIComponent(cityName)}`)
+      if (!res.ok) { showToast(`City not found: "${cityName}"`); return }
+      const { lat, lng } = await res.json()
+      setCityOverride({ lat, lng, name: cityName })
+      setFirstLoad(false)
+      fetchJobs({ ...filters, keyword: keyword || '' }, lat, lng)
+    } catch {
+      showToast('Could not geocode city. Try again.')
     }
-  }, [geo.status])
-
-  // Geolocation status banner
-  const showDefaultBanner = geo.status === 'default'
-
-  const doSearch = useCallback((overrides) => {
-    const merged = { ...filters, ...overrides, keyword: keyword || 'software engineer' }
-    fetchJobs(merged, geo.lat, geo.lng)
-  }, [filters, keyword, geo.lat, geo.lng, fetchJobs])
+  }
 
   function handleFilterChange(updated) {
     setFilters((prev) => ({ ...prev, ...updated }))
@@ -61,14 +76,28 @@ function AppInner() {
 
   function handleJobSelect(job) {
     setSelectedJob(job)
+    setSavedDrawerOpen(false)
+    setAppliedDrawerOpen(false)
   }
 
   function handleClosePanel() {
     setSelectedJob(null)
   }
 
-  // Count jobs with coordinates (+ scattered ones)
-  const jobCount = totalCount
+  function handleOpenSaved() {
+    setSavedDrawerOpen(true)
+    setAppliedDrawerOpen(false)
+    setSelectedJob(null)
+  }
+
+  function handleOpenApplied() {
+    setAppliedDrawerOpen(true)
+    setSavedDrawerOpen(false)
+    setSelectedJob(null)
+  }
+
+  const savedCount = Object.keys(bookmarks).length
+  const appliedCount = Object.keys(applied).length
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-paper">
@@ -76,8 +105,14 @@ function AppInner() {
         keyword={keyword}
         onKeywordChange={setKeyword}
         onSearch={doSearch}
-        jobCount={jobCount}
-        onUseLocation={geo.retrigger}
+        jobCount={totalCount}
+        onUseLocation={() => { setCityOverride(null); geo.retrigger() }}
+        savedCount={savedCount}
+        onOpenSaved={handleOpenSaved}
+        appliedCount={appliedCount}
+        onOpenApplied={handleOpenApplied}
+        onCitySearch={handleCitySearch}
+        currentCity={currentCity}
       />
 
       {/* Default location banner */}
@@ -122,7 +157,7 @@ function AppInner() {
           filters={filters}
           onChange={handleFilterChange}
           onApply={handleApply}
-          jobCount={jobCount}
+          jobCount={totalCount}
           isMobileOpen={mobileFilters}
           onMobileClose={() => setMobileFilters(false)}
         />
@@ -132,12 +167,49 @@ function AppInner() {
           selectedJob={selectedJob}
           isLoading={isLoading}
           onJobSelect={handleJobSelect}
-          userLat={geo.lat}
-          userLng={geo.lng}
+          userLat={effectiveLat}
+          userLng={effectiveLng}
+          applied={applied}
+          firstLoad={firstLoad}
+          onFirstSearch={(role) => { setKeyword(role); doSearch({ keyword: role }) }}
         />
 
-        {/* JobPanel floats absolutely over the map */}
-        <JobPanel job={selectedJob} onClose={handleClosePanel} />
+        <JobPanel
+          job={selectedJob}
+          onClose={handleClosePanel}
+          isBookmarked={!!bookmarks[selectedJob?.job_id]}
+          isApplied={!!applied[selectedJob?.job_id]}
+          onBookmark={toggleBookmark}
+          onApplied={toggleApplied}
+        />
+
+        {savedDrawerOpen && (
+          <SavedDrawer
+            title="Saved Jobs"
+            jobs={Object.values(bookmarks)}
+            badgeLabel={(job) => applied[job.job_id] ? '✓ Applied' : null}
+            emptyIcon="♡"
+            emptyText={{ title: 'No saved jobs yet', body: 'Click the ♡ on any job to save it here.' }}
+            onJobSelect={handleJobSelect}
+            onRemove={toggleBookmark}
+            removeLabel="Remove"
+            onClose={() => setSavedDrawerOpen(false)}
+          />
+        )}
+
+        {appliedDrawerOpen && (
+          <SavedDrawer
+            title="Applied Jobs"
+            jobs={Object.values(applied)}
+            badgeLabel={(job) => bookmarks[job.job_id] ? '♥ Saved' : null}
+            emptyIcon="✓"
+            emptyText={{ title: 'No applications yet', body: 'Click "Applied?" on any job to track it here.' }}
+            onJobSelect={handleJobSelect}
+            onRemove={toggleApplied}
+            removeLabel="Unmark"
+            onClose={() => setAppliedDrawerOpen(false)}
+          />
+        )}
       </div>
     </div>
   )
