@@ -101,6 +101,50 @@ app.get('/api/jobs', async (req, res) => {
       });
     }
 
+    // Geocode jobs missing lat/lng using their city/country from JSearch
+    const cityCache = new Map();
+    async function geocodeCity(city, country) {
+      const key = `${city},${country}`;
+      if (cityCache.has(key)) return cityCache.get(key);
+      if (geoCache.has(key)) { cityCache.set(key, geoCache.get(key)); return geoCache.get(key); }
+      try {
+        const q = country ? `${city}, ${country}` : city;
+        const r = await axios.get('https://nominatim.openstreetmap.org/search', {
+          params: { q, format: 'json', limit: 1 },
+          headers: { 'User-Agent': 'JobMap/1.0' },
+        });
+        const result = r.data[0] ? { lat: parseFloat(r.data[0].lat), lng: parseFloat(r.data[0].lon) } : null;
+        cityCache.set(key, result);
+        geoCache.set(key, result);
+        return result;
+      } catch {
+        return null;
+      }
+    }
+
+    // Collect unique cities needing geocoding
+    const uniqueCities = new Set();
+    for (const job of jobs) {
+      if (!job.job_latitude && !job.job_longitude && job.job_city) {
+        uniqueCities.add(`${job.job_city},${job.job_country || ''}`);
+      }
+    }
+
+    // Geocode all unique cities in parallel (Nominatim allows ~1 req/s; batch safely)
+    await Promise.all([...uniqueCities].map((key) => {
+      const [city, country] = key.split(',');
+      return geocodeCity(city, country);
+    }));
+
+    // Attach coordinates to jobs
+    jobs = await Promise.all(jobs.map(async (job) => {
+      if (job.job_latitude && job.job_longitude) return job;
+      if (!job.job_city) return job;
+      const coords = await geocodeCity(job.job_city, job.job_country || '');
+      if (!coords) return job;
+      return { ...job, job_latitude: coords.lat, job_longitude: coords.lng };
+    }));
+
     res.json(jobs);
   } catch (err) {
     console.error('Jobs API error:', err.response?.data || err.message);

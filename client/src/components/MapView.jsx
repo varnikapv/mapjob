@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useMemo } from 'react'
 import { MapContainer, TileLayer, Marker, Tooltip, useMap, ZoomControl } from 'react-leaflet'
 import L from 'leaflet'
 
@@ -86,22 +86,24 @@ function scatterJobs(jobs, userLat, userLng) {
     }
   }).filter(Boolean)
 
-  // Second pass: spread out jobs sharing the same coordinates
+  // Second pass: spread out non-scattered jobs sharing the exact same coordinates
   const coordCount = {}
   for (const job of withCoords) {
-    const key = `${job.job_latitude.toFixed(3)},${job.job_longitude.toFixed(3)}`
+    if (job._scattered) continue
+    const key = `${job.job_latitude.toFixed(4)},${job.job_longitude.toFixed(4)}`
     coordCount[key] = (coordCount[key] || 0) + 1
   }
 
   const coordIndex = {}
   return withCoords.map((job) => {
-    const key = `${job.job_latitude.toFixed(3)},${job.job_longitude.toFixed(3)}`
+    if (job._scattered) return job
+    const key = `${job.job_latitude.toFixed(4)},${job.job_longitude.toFixed(4)}`
     if (coordCount[key] <= 1) return job
 
     const idx = coordIndex[key] = (coordIndex[key] || 0) + 1
     const total = coordCount[key]
     const angle = (2 * Math.PI * idx) / total
-    const radius = 0.005 + 0.003 * Math.floor(idx / 12) // spiral outward
+    const radius = 0.002 + 0.001 * Math.floor(idx / 12)
     return {
       ...job,
       job_latitude: job.job_latitude + radius * Math.cos(angle),
